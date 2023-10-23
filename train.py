@@ -1,0 +1,178 @@
+import comet_ml
+
+print("Imported comet_ml")
+
+experiment_name = 'ResNet_no_preprocessing_pretrained'
+
+print("Set experiment name")
+
+# #create an experiment with your api key
+experiment = comet_ml.Experiment(
+    api_key="LWf0Xh0BnuzPNtCkqvUJz2mKc",
+    project_name=experiment_name,
+    auto_histogram_weight_logging=True,
+    auto_histogram_gradient_logging=True,
+    auto_histogram_activation_logging=True,
+)
+
+print("Set experiment params")
+
+from tensorflow import keras
+from keras.applications import ResNet50, DenseNet121, EfficientNetB0
+
+print("Imported TF and models")
+
+batch_size = 16
+epochs = 200
+input_size = (224, 224, 3)
+optimizer = 'adam'
+
+print("Initialized models params")
+
+from dataloader import *
+
+print("Imported dataloader file")
+
+# the data, shuffled and split between train and test sets
+datasets_paths = ["/home/guilherme/Downloads/breast_20x", "/home/guilherme/Downloads/mouth_20x"]
+
+print("Set path to datasets")
+
+img_paths = scan_datasets(datasets_paths)
+train, val = split_train_val(img_paths, 60)
+val, test = split_train_val(val, 75)
+
+print("Splitted the dataset")
+
+train_loader = CustomDataGenerator(
+                 data=train,
+                 batch_size=16,
+                 input_size=input_size,
+                 shuffle=False,
+                 normalize=False)
+
+print("Initialized train loader")
+
+val_loader = CustomDataGenerator(
+                 data=val,
+                 batch_size=16,
+                 input_size=input_size,
+                 shuffle=False,
+                 normalize=False)
+
+print("Initialized val loader")
+
+test_loader = CustomDataGenerator(
+                 data=test,
+                 batch_size=16,
+                 input_size=input_size,
+                 shuffle=False,
+                 normalize=False)
+
+print("Initialized test loader")
+
+#these will all get logged
+params={'batch_size':batch_size,
+        'epochs':epochs,
+        'optimizer':optimizer,
+        'input_size': input_size
+}
+
+print("Set the models params")
+
+policy = keras.mixed_precision.Policy('mixed_float16')
+keras.mixed_precision.set_global_policy(policy)
+
+mirrored_strategy = tf.distribute.MirroredStrategy()
+print("Set the strategy to mirrored")
+
+with mirrored_strategy.scope():
+  # Initialize the custom model
+  custom_resnet = keras.Sequential()
+
+  print("Initialized keras sequential custom model")
+
+  resnet_model = ResNet50(
+                  include_top=False,
+                  pooling="avg",
+                  weights="imagenet",
+                  )
+
+  print("Initialized resnet model")
+
+  # Freeze the model
+  for layer in resnet_model.layers:
+    layer.trainable = False
+    
+  print("Froze resnet model")
+    
+  custom_resnet.add(resnet_model)
+  custom_resnet.add(keras.layers.Flatten())
+  custom_resnet.add(keras.layers.Dense(512, activation="relu"))
+  custom_resnet.add(keras.layers.Dense(1, activation="sigmoid"))
+
+  print("Added resnet and three layers into custom model")
+
+  #print model.summary() to preserve automatically in `Output` tab
+  print(custom_resnet.summary())
+
+  custom_resnet.compile(loss='binary_crossentropy',
+              optimizer=optimizer,
+              metrics=['accuracy'])
+    
+print("Compiled custom model")
+
+# Define a function for decaying the learning rate.
+# You can define any decay function you need.
+def decay(epoch):
+  if epoch < 20:
+    return 1e-3
+  elif epoch >= 20 and epoch < 80:
+    return 1e-4
+  else:
+    return 1e-5
+  
+print("Defined custom lr decay function")
+
+# Define the checkpoint directory to store the checkpoints.
+checkpoint_dir = f'./{experiment_name}_training_checkpoints'
+# Define the name of the checkpoint files.
+checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_{epoch}.h5")
+
+print("Set the save dir for training")
+
+# Put all the callbacks together.
+callbacks = [
+    keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=3, verbose=1, mode='auto'), 
+    keras.callbacks.ModelCheckpoint(filepath=checkpoint_prefix,
+                                       save_weights_only=True,
+                                       save_best_only=True),
+    keras.callbacks.LearningRateScheduler(decay),
+    keras.callbacks.TensorBoard(log_dir=f'./{experiment_name}_logs')
+]
+
+print("Joined all callbacks into a list")
+
+#will log metrics with the prefix 'train_'
+with experiment.train():
+  history = custom_resnet.fit(
+                      train_loader,
+                      batch_size=batch_size,
+                      epochs=epochs,
+                      verbose=1,
+                      validation_data=val_loader,
+                      callbacks=callbacks)
+
+#will log metrics with the prefix 'test_'
+with experiment.test():
+  loss, accuracy = custom_resnet.evaluate(test_loader)
+  metrics = {
+      'loss':loss,
+      'accuracy':accuracy
+  }
+
+experiment.log_metrics(metrics)
+
+experiment.log_parameters(params)
+
+experiment.end()

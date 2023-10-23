@@ -1,0 +1,8 @@
+# Ignore output images and logs
+*.png
+*.out
+__pycache__
+
+# Ignore example files
+test.py
+example_keras_finetune_efficientnet.py
