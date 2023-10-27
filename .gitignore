@@ -3,6 +3,11 @@
 *.out
 __pycache__
 
-# Ignore example files
-test.py
+resnet_*
+densenet_*
+efficientnet_*
+transformer_*
+
+# Ignore example files/folders
+test*
 example_keras_finetune_efficientnet.py
