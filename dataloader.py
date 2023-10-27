@@ -63,7 +63,6 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         return np.asarray(0)
       
     elif "mouth" in path:
-      
       # Mouth files labeled as ImageL<number>C<number>_<ID>_<0(benign)|1(malignant)>
       filename_split = filename.split("_")
       
