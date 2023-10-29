@@ -1,3 +1,4 @@
+import os
 import comet_ml
 
 print("Imported comet_ml")
@@ -5,7 +6,15 @@ print("Imported comet_ml")
 model_name = "resnet"
 training_mode = "transfer_learning"
 
-experiment_name = f'{model_name}_no_preprocessing_{training_mode}'
+experiment_name = f'{model_name}_no_preprocessing_{training_mode}_v'
+
+dir_index = 0
+while os.path.isdir(os.path.join(os.getcwd(), experiment_name + str(dir_index))):
+  dir_index += 1
+
+os.mkdir(os.path.join(os.getcwd(), experiment_name + str(dir_index)))
+
+experiment_name += str(dir_index)
 
 print("Set experiment name")
 
@@ -28,9 +37,9 @@ print("Imported TF and models")
 # Define a function for decaying the learning rate.
 # You can define any decay function you need.
 def decay(epoch):
-  if epoch < 20:
+  if epoch < 15:
     return 1e-3
-  elif epoch >= 20 and epoch < 80:
+  elif epoch >= 15 and epoch < 80:
     return 1e-4
   else:
     return 1e-5
@@ -102,7 +111,7 @@ with mirrored_strategy.scope():
   custom_model = get_model("resnet", params, "transfer_learning", None)
 
 # Define the checkpoint directory to store the checkpoints.
-checkpoint_dir = f'./{experiment_name}_training_checkpoints'
+checkpoint_dir = os.path.join(os.getcwd(), experiment_name, "checkpoints")
 # Define the name of the checkpoint files.
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_")
 
@@ -110,12 +119,12 @@ print("Set the save dir for training")
 
 # Put all the callbacks together.
 callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=3, verbose=1, mode='auto'), 
+    keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=20, verbose=1, mode='auto'),
     keras.callbacks.ModelCheckpoint(filepath=checkpoint_prefix,
                                        save_weights_only=True,
                                        save_best_only=True),
     keras.callbacks.LearningRateScheduler(params["lr_scheduler"]),
-    keras.callbacks.TensorBoard(log_dir=f'./{experiment_name}_logs')
+    keras.callbacks.TensorBoard(log_dir=os.path.join(os.getcwd(), experiment_name, "logs"))
 ]
 
 print("Joined all callbacks into a list")
@@ -137,6 +146,9 @@ with experiment.test():
       'loss':loss,
       'accuracy':accuracy
   }
+
+os.mkdir(os.path.join(os.getcwd(), experiment_name, "model"))
+custom_model.save(os.path.join(os.getcwd(), experiment_name, "model"), save_format="tf")
 
 experiment.log_metrics(metrics)
 
