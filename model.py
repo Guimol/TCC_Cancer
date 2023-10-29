@@ -6,12 +6,13 @@ print("Imported TF and models")
 
 def get_model(base_model_name: str, params: dict, training_mode: str, weight_path: str) -> tf.keras.Model:
     
+    trainable = True # boolean to set layers trainability
+    
     # Type of training
     if training_mode == "transfer_learning":
         trainable = False
         weight = "imagenet"
     elif training_mode == "finetuning":
-        trainable = True
         weight = weight_path
     elif training_mode == "from_scratch":
         weight = None
