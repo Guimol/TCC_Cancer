@@ -88,7 +88,7 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
   def __len__(self):
       return len(self.img_paths) // self.batch_size
     
-def scan_datasets(datasets_paths: list) -> list:
+def scan_datasets(datasets_paths: list, upsampling_factor: int, transformations_list: list) -> list:
   img_paths = []
   
   for index, path in enumerate(datasets_paths):
@@ -107,7 +107,11 @@ def scan_datasets(datasets_paths: list) -> list:
     
     # Append the newly found paths to class img_paths list
     img_paths.extend(curr_dir_img_paths)
-  
+    
+    if upsampling_factor > 1:
+      for i in range(upsampling_factor):
+        pass
+    
     # New line
     print()
   
