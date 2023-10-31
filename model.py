@@ -12,8 +12,8 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
     if training_mode == "transfer_learning":
         trainable = False
         weight = "imagenet"
-    elif training_mode == "finetuning":
-        weight = weight_path
+    elif training_mode == "fine_tuning":
+        weight = None
     elif training_mode == "from_scratch":
         weight = None
     
@@ -54,6 +54,13 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
     
     base_model.trainable = trainable
     
+    if training_mode == "fine_tuning":
+        base_model.load_weights(weight_path) #! Temp workaround to load weights
+        for layer in base_model.layers:
+            if "bn" in layer.name:
+                layer.trainable = False
+        print("Froze all BN layers in the model")
+    
     print(f"Set base model layers training to {trainable}")
         
     inputs = keras.Input(shape=params["input_size"])
@@ -70,7 +77,7 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
     print(model.summary())
     
     model.compile(
-        optimizer=keras.optimizers.Adam(params["learning_rate"]),
+        optimizer=keras.optimizers.Adam(learning_rate=params["learning_rate"]), 
         loss=keras.losses.BinaryCrossentropy(from_logits=True),
         metrics=[keras.metrics.BinaryAccuracy()]
     )
