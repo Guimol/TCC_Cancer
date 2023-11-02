@@ -67,11 +67,34 @@ datasets_paths = ["/home/guilherme/Downloads/breast_20x", "/home/guilherme/Downl
 
 print("Set path to datasets")
 
-img_paths = scan_datasets(datasets_paths)
-train, val = split_train_val(img_paths, 60)
-val, test = split_train_val(val, 75)
+import albumentations as A
 
-print("Splitted the dataset")
+transformations_list = [
+  A.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=0.5),
+  A.ColorJitter(brightness=(0.1, 0.5), contrast=(0.1, 0.5), saturation=(0.1, 0.5), hue=(-0.2, 0.2), p=0.5),
+  A.ShiftScaleRotate(shift_limit=(0.05, 0.2), scale_limit=(-0.1, 0.5), rotate_limit=45, interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_WRAP, p=0.5)
+]
+
+print("Defined list of transformations")
+
+img_paths = scan_datasets(datasets_paths, upsampling_factor=5, transformations_list=transformations_list)
+pacients = retrieve_pacients(img_paths)
+
+print(f"Retrieved {len(pacients)} pacients")
+
+train_keys, test_keys = split_pacients_train_test(pacients, 90)
+train_keys, val_keys = split_pacients_train_test(train_keys, 80)
+
+print(f"Splitted the pacients into: Train ({len(train_keys)}) | Validation ({len(val_keys)}) | Test ({len(test_keys)})")
+
+train = retrieve_pacients_data(pacients, img_paths, train_keys)
+val = retrieve_pacients_data(pacients, img_paths, val_keys)
+test = retrieve_pacients_data(pacients, img_paths, test_keys)
+
+print("Splitted the dataset into:")
+print(f"Train: {len(train)} | {len(train)/(len(train)+len(val)+len(test))}%")
+print(f"Validation: {len(val)} | {len(val)/(len(train)+len(val)+len(test))}%")
+print(f"Test: {len(test)} | {len(test)/(len(train)+len(val)+len(test))}%")
 
 train_loader = CustomDataGenerator(
                  data=train,
