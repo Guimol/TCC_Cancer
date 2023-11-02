@@ -159,6 +159,10 @@ callbacks = [
 
 print("Joined all callbacks into a list")
 
+import sklearn
+
+print("Imported scikit learn library for Cross-Validation")
+
 #will log metrics with the prefix 'train_'
 with experiment.train():
   history = custom_model.fit(
