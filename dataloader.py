@@ -344,6 +344,7 @@ def split_pacients_train_test(pacients: typing.Union[dict, list], split_percenta
       
   return train_keys, test_keys
 
+'''
 # Usage
 datasets_paths = ["/home/guilherme/Downloads/breast_20x", "/home/guilherme/Downloads/mouth_20x"]
 
@@ -368,8 +369,6 @@ cdg_train = CustomDataGenerator(
   data=train,
   batch_size=1,
   input_size=(480, 480, 3))
-
-import pdb; pdb.set_trace()
 
 # cdg_val = CustomDataGenerator(
 #   data=val,
@@ -400,3 +399,4 @@ import pdb; pdb.set_trace()
 #   seed=42,
 #   image_size=(img_height, img_width),
 #   batch_size=batch_size)
+'''
