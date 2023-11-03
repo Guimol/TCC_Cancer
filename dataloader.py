@@ -225,6 +225,13 @@ def split_pacients_train_test(pacients: typing.Union[dict, list], split_percenta
 # Usage
 datasets_paths = ["/home/guilherme/Downloads/breast_20x", "/home/guilherme/Downloads/mouth_20x"]
 
+# When combining the datasets we get the following distribution
+# 0 is benign
+# 1 is malignant
+
+#Malignant: 76.78% (172/224)
+#Benign: 23.21% (52/224)
+
 transformations_list = [
   albumentations.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=0.5),
   albumentations.ColorJitter(brightness=(0.1, 0.5), contrast=(0.1, 0.5), saturation=(0.1, 0.5), hue=(-0.2, 0.2), p=0.5),
