@@ -7,10 +7,21 @@ from glob import glob
 # from tqdm import tqdm
 import tifffile
 import cv2
+import matplotlib.pyplot as plt
 
 import typing
 
 import albumentations
+
+def img_is_color(img):
+
+  if len(img.shape) == 3:
+      # Check the color channels to see if they're all the same.
+      c1, c2, c3 = img[:, : , 0], img[:, :, 1], img[:, :, 2]
+      if (c1 == c2).all() and (c2 == c3).all():
+          return True
+
+  return False
 
 img_types = [".tif", ".tiff"]
 
@@ -21,13 +32,15 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
                batch_size: int = 32,
                input_size: tuple = (224, 224, 3),
                shuffle: bool = True,
-               normalize: bool = False):
+               normalize: bool = False,
+               transform_imgs: bool = True):
       
     self.batch_size = batch_size
     self.input_size = input_size
     self.shuffle = shuffle
     self.normalize = normalize
     self.img_paths = data
+    self.transform_imgs = transform_imgs
       
   def on_epoch_end(self):
     if self.shuffle:
@@ -39,9 +52,118 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     X, y = self.__get_data(batches)
     
     return X, y
+  
+  def get_images(self, count: int, transform_imgs: bool=True) -> typing.Tuple[typing.List[np.array], typing.List[int]]:
     
+    default_transform_imgs = self.transform_imgs
+    self.transform_imgs = transform_imgs
     
-  def __get_data(self, batches: list) -> tuple:
+    batches = self.img_paths[0:count]
+    X, y = self.__get_data(batches)
+    
+    # Return transforms to default value
+    self.transform_imgs = default_transform_imgs
+    
+    return X, y
+  
+  def visualize_samples(self, 
+                        count: int=9, 
+                        transform_imgs: bool=True, 
+                        list_titles: typing.List[str]=None,
+                        list_cmaps: typing.List[np.array]=None,
+                        grid: bool=True, 
+                        num_cols: int=3, 
+                        figsize: typing.Tuple[int, int]=(20, 10), 
+                        title_fontsize: int=30, 
+                        mode: str="write",
+                        save_path: str=None):
+    '''
+    Shows a grid of images, where each image is a Numpy array. The images can be either
+    RGB or grayscale.
+
+    Parameters:
+    ----------
+    count: int
+        Number of the images to be displayed.
+    list_titles: list or None
+        Optional list of titles to be shown for each image.
+    list_cmaps: list or None
+        Optional list of cmap values for each image. If None, then cmap will be
+        automatically inferred.
+    grid: boolean
+        If True, show a grid over each image.
+    num_cols: int
+        Number of columns to show.
+    figsize: tuple of width, height
+        Value to be passed to pyplot.figure()
+    title_fontsize: int
+        Value to be passed to set_title().
+    mode: "write" or "show"
+        Chooses whether to save plot in disk or show in terminal.
+    save_path: str or None
+        If mode == "write" specify the path to save the plot, if None get current working dir
+    '''
+    import pdb; pdb.set_trace()
+    
+    images_array, classes_array = self.get_images(count, transform_imgs)
+    
+    list_images = [img for img in images_array]
+    list_classes = [img_class for img_class in classes_array]
+
+    assert isinstance(list_images, list)
+    assert len(list_images) > 0
+    assert isinstance(list_images[0], np.ndarray)
+
+    if list_titles is not None:
+        assert isinstance(list_titles, list)
+        assert len(list_images) == len(list_titles), '%d imgs != %d titles' % (len(list_images), len(list_titles))
+    
+    if list_cmaps is not None:
+        assert isinstance(list_cmaps, list)
+        assert len(list_images) == len(list_cmaps), '%d imgs != %d cmaps' % (len(list_images), len(list_cmaps))
+    
+    num_images  = len(list_images)
+    num_cols    = min(num_images, num_cols)
+    num_rows    = int(num_images / num_cols) + (1 if num_images % num_cols != 0 else 0)
+
+    # Create a grid of subplots.
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=figsize)
+    
+    # Create list of axes for easy iteration.
+    if isinstance(axes, np.ndarray):
+        list_axes = list(axes.flat)
+    else:
+        list_axes = [axes]
+
+    for i in range(num_images):
+
+        img    = list_images[i]
+        title  = list_titles[i] if list_titles is not None else 'Image %d | Class %d' % (i, list_classes[i])
+        cmap   = list_cmaps[i] if list_cmaps is not None else (None if img_is_color(img) else 'gray')
+        
+        list_axes[i].imshow(img, cmap=cmap)
+        list_axes[i].set_title(title, fontsize=title_fontsize) 
+        list_axes[i].grid(grid)
+
+    for i in range(num_images, len(list_axes)):
+        list_axes[i].set_visible(False)
+        
+    fig.tight_layout()
+    
+    if mode == "show":
+      _ = plt.show()
+    elif mode == "write":
+      if save_path == None:
+        save_path = os.path.join(os.getcwd(), f"visualize_plot_{'with' if transform_imgs else 'no'}_transforms.png")
+      
+      try:
+        plt.savefig(save_path)
+      except Exception as error:
+        print(f"Error in saving the plot: {error}")
+    
+  def __get_data(self, batches: list) -> typing.Tuple[np.array, np.array]:
+    
+    # Sample (tuple) -> (img_path, [list of transformations])
     
     img_batch = np.asarray([self.__get_input(sample) for sample in batches])
     
@@ -88,11 +210,12 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     img_array = cv2.resize(img, (self.input_size[0], self.input_size[1]))
     
     # Sample[1] = transformations to be applied in image
-    transformed_img = sample[1](image=img_array)["image"]
+    if self.transform_imgs:
+      img_array = sample[1](image=img_array)["image"]
     
-    if self.normalize: transformed_img = transformed_img / 255.0
+    if self.normalize: img_array = img_array / 255.0
     
-    return transformed_img
+    return img_array
   
   def __len__(self):
       return len(self.img_paths) // self.batch_size
@@ -221,7 +344,6 @@ def split_pacients_train_test(pacients: typing.Union[dict, list], split_percenta
       
   return train_keys, test_keys
 
-'''
 # Usage
 datasets_paths = ["/home/guilherme/Downloads/breast_20x", "/home/guilherme/Downloads/mouth_20x"]
 
@@ -246,6 +368,8 @@ cdg_train = CustomDataGenerator(
   data=train,
   batch_size=1,
   input_size=(480, 480, 3))
+
+import pdb; pdb.set_trace()
 
 # cdg_val = CustomDataGenerator(
 #   data=val,
@@ -276,4 +400,3 @@ cdg_train = CustomDataGenerator(
 #   seed=42,
 #   image_size=(img_height, img_width),
 #   batch_size=batch_size)
-'''
