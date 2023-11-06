@@ -335,9 +335,7 @@ def split_pacients_train_test(pacients: typing.Union[dict, list], split_percenta
   else:
     print("Invalid type for pacients")
     quit()
-  
-  random.shuffle(pacients_keys)
-  
+    
   train_keys = pacients_keys[0:int((split_percentage/100) * len(pacients_keys))]
   test_keys = pacients_keys[int((split_percentage/100) * len(pacients_keys)):]
       
