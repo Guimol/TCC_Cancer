@@ -103,7 +103,6 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     save_path: str or None
         If mode == "write" specify the path to save the plot, if None get current working dir
     '''
-    import pdb; pdb.set_trace()
     
     images_array, classes_array = self.get_images(count, transform_imgs)
     
