@@ -77,51 +77,19 @@ transformations_list = [
 
 print("Defined list of transformations")
 
-img_paths = scan_datasets(datasets_paths, upsampling_factor=5, transformations_list=transformations_list)
+img_paths = scan_datasets(datasets_paths)
 pacients = retrieve_pacients(img_paths)
 
 print(f"Retrieved {len(pacients)} pacients")
 
-train_keys, test_keys = split_pacients_train_test(pacients, 90)
-train_keys, val_keys = split_pacients_train_test(train_keys, 80)
+folds = create_folds(pacients, img_paths, 5)
 
-print(f"Splitted the pacients into: Train ({len(train_keys)}) | Validation ({len(val_keys)}) | Test ({len(test_keys)})")
+print(f"Created {len(folds)} folds for Cross Validation")
 
-train = retrieve_pacients_data(pacients, img_paths, train_keys)
-val = retrieve_pacients_data(pacients, img_paths, val_keys)
-test = retrieve_pacients_data(pacients, img_paths, test_keys)
+upsampling_factor = 5
+upsampled_folds = upsample_folds(folds, upsampling_factor=upsampling_factor, transformations_list=transformations_list)
 
-print("Splitted the dataset into:")
-print(f"Train: {len(train)} | {len(train)/(len(train)+len(val)+len(test))}%")
-print(f"Validation: {len(val)} | {len(val)/(len(train)+len(val)+len(test))}%")
-print(f"Test: {len(test)} | {len(test)/(len(train)+len(val)+len(test))}%")
-
-train_loader = CustomDataGenerator(
-                 data=train,
-                 batch_size=16,
-                 input_size=params["input_size"],
-                 shuffle=False,
-                 normalize=False)
-
-print("Initialized train loader")
-
-val_loader = CustomDataGenerator(
-                 data=val,
-                 batch_size=16,
-                 input_size=params["input_size"],
-                 shuffle=False,
-                 normalize=False)
-
-print("Initialized val loader")
-
-test_loader = CustomDataGenerator(
-                 data=test,
-                 batch_size=16,
-                 input_size=params["input_size"],
-                 shuffle=False,
-                 normalize=False)
-
-print("Initialized test loader")
+print(f"Upsampled the folds x{upsampling_factor} times")
 
 policy = keras.mixed_precision.Policy('mixed_float16')
 keras.mixed_precision.set_global_policy(policy)
@@ -129,63 +97,83 @@ keras.mixed_precision.set_global_policy(policy)
 mirrored_strategy = tf.distribute.MirroredStrategy()
 print("Set the strategy to mirrored")
 
-from model import get_model
+for train, test in PermuteFolds(folds=upsampled_folds):
+  
+  train_loader = CustomDataGenerator(
+                 data=train,
+                 batch_size=16,
+                 input_size=params["input_size"],
+                 shuffle=False,
+                 normalize=False)
 
-with mirrored_strategy.scope():
-  custom_model = get_model(
-                    base_model_name=model_name, 
-                    params=params, 
-                    training_mode=training_mode, 
-                    weight_path=weight_path,
-                    saved_model_path=saved_model_path
-                  )
+  print("Initialized train loader")
 
-# Define the checkpoint directory to store the checkpoints.
-checkpoint_dir = os.path.join(os.getcwd(), experiment_name, "checkpoints")
-# Define the name of the checkpoint files.
-checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_")
+  test_loader = CustomDataGenerator(
+                 data=test,
+                 batch_size=16,
+                 input_size=params["input_size"],
+                 shuffle=False,
+                 normalize=False)
 
-print("Set the save dir for training")
+  print("Initialized test loader")
 
-# Put all the callbacks together.
-callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=1e-3, patience=20, verbose=1, mode='auto'),
-    keras.callbacks.ModelCheckpoint(filepath=checkpoint_prefix,
-                                       save_weights_only=True,
-                                       save_best_only=True),
-    keras.callbacks.LearningRateScheduler(params["lr_scheduler"]),
-    keras.callbacks.TensorBoard(log_dir=os.path.join(os.getcwd(), experiment_name, "logs"))
-]
+  from model import get_model
 
-print("Joined all callbacks into a list")
+  with mirrored_strategy.scope():
+    custom_model = get_model(
+                      base_model_name=model_name, 
+                      params=params, 
+                      training_mode=training_mode, 
+                      weight_path=weight_path,
+                      saved_model_path=saved_model_path
+                    )
 
-import sklearn
+  # Define the checkpoint directory to store the checkpoints.
+  checkpoint_dir = os.path.join(os.getcwd(), experiment_name, "checkpoints")
+  # Define the name of the checkpoint files.
+  checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_")
 
-print("Imported scikit learn library for Cross-Validation")
+  print("Set the save dir for training")
 
-#will log metrics with the prefix 'train_'
-with experiment.train():
-  history = custom_model.fit(
-                      train_loader,
-                      batch_size=params["batch_size"],
-                      epochs=params["epochs"],
-                      verbose=1,
-                      validation_data=val_loader,
-                      callbacks=callbacks)
+  # Put all the callbacks together.
+  callbacks = [
+      keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=1e-3, patience=20, verbose=1, mode='auto'),
+      keras.callbacks.ModelCheckpoint(filepath=checkpoint_prefix,
+                                        save_weights_only=True,
+                                        save_best_only=True),
+      keras.callbacks.LearningRateScheduler(params["lr_scheduler"]),
+      keras.callbacks.TensorBoard(log_dir=os.path.join(os.getcwd(), experiment_name, "logs"))
+  ]
 
-#will log metrics with the prefix 'test_'
-with experiment.test():
-  loss, accuracy = custom_model.evaluate(test_loader)
-  metrics = {
-      'loss':loss,
-      'accuracy':accuracy
-  }
+  print("Joined all callbacks into a list")
 
-os.mkdir(os.path.join(os.getcwd(), experiment_name, "model"))
-custom_model.save(os.path.join(os.getcwd(), experiment_name, "model"), save_format="tf")
+  import sklearn
 
-experiment.log_metrics(metrics)
+  print("Imported scikit learn library for Cross-Validation")
 
-experiment.log_parameters(params)
+  #will log metrics with the prefix 'train_'
+  with experiment.train():
+    history = custom_model.fit(
+                        train_loader,
+                        batch_size=params["batch_size"],
+                        epochs=params["epochs"],
+                        verbose=1,
+                        validation_data=test_loader,
+                        callbacks=callbacks)
 
-experiment.end()
+  #will log metrics with the prefix 'test_'
+  with experiment.test():
+    loss, accuracy = custom_model.evaluate(test_loader)
+    metrics = {
+        'loss':loss,
+        'accuracy':accuracy
+    }
+
+  os.mkdir(os.path.join(os.getcwd(), experiment_name, "model"))
+  custom_model.save(os.path.join(os.getcwd(), experiment_name, "model"), save_format="tf")
+
+  experiment.log_metrics(metrics)
+
+  experiment.log_parameters(params)
+
+  experiment.end()
