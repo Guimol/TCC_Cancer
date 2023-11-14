@@ -403,8 +403,6 @@ cdg_train = CustomDataGenerator(
   batch_size=1,
   input_size=(480, 480, 3))
 
-import pdb; pdb.set_trace()
-
 # cdg_val = CustomDataGenerator(
 #   data=val,
 #   batch_size=16)
