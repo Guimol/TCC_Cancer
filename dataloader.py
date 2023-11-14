@@ -45,26 +45,30 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
   def on_epoch_end(self):
     if self.shuffle:
       random.shuffle(self.img_paths)
-    
-  def __getitem__(self, index: int) -> tuple:
-    
-    batches = self.img_paths[index * self.batch_size: (index + 1) * self.batch_size]
-    X, y = self.__get_data(batches)
-    
-    return X, y
-  
-  def get_images(self, count: int, transform_imgs: bool=True) -> typing.Tuple[typing.List[np.array], typing.List[int]]:
+      
+  def get_images(self, count: int, transform_imgs: bool=True) -> typing.Tuple[typing.List[np.array], typing.List[int], typing.List[dict]]:
     
     default_transform_imgs = self.transform_imgs
     self.transform_imgs = transform_imgs
     
     batches = self.img_paths[0:count]
-    X, y = self.__get_data(batches)
+    X, y, replay_transforms = self.__get_data(batches)
     
     # Return transforms to default value
     self.transform_imgs = default_transform_imgs
     
-    return X, y
+    return X, y, replay_transforms
+  
+  def __show_transforms(self, replay: dict) -> str:
+    
+    transforms = replay["transforms"]
+    applied_transforms = [transform for transform in transforms if transform["applied"] == True]
+    
+    names = [transform["__class_fullname__"].split(".")[-1] for transform in applied_transforms]
+    
+    str_transforms = " | ".join(names)
+    
+    return "\n" + str_transforms
   
   def visualize_samples(self, 
                         count: int=9, 
@@ -74,7 +78,7 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
                         grid: bool=True, 
                         num_cols: int=3, 
                         figsize: typing.Tuple[int, int]=(20, 10), 
-                        title_fontsize: int=30, 
+                        title_fontsize: int=20, 
                         mode: str="write",
                         save_path: str=None):
     '''
@@ -104,10 +108,11 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         If mode == "write" specify the path to save the plot, if None get current working dir
     '''
     
-    images_array, classes_array = self.get_images(count, transform_imgs)
+    images_array, classes_array, replay_array = self.get_images(count, transform_imgs)
     
     list_images = [img for img in images_array]
     list_classes = [img_class for img_class in classes_array]
+    list_replay_tranforms = [replay for replay in replay_array]
 
     assert isinstance(list_images, list)
     assert len(list_images) > 0
@@ -137,7 +142,13 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     for i in range(num_images):
 
         img    = list_images[i]
-        title  = list_titles[i] if list_titles is not None else 'Image %d | Class %d' % (i, list_classes[i])
+        if list_titles is not None:
+          title = list_titles[i]
+        else:
+          applied_transforms = ""
+          if list_replay_tranforms[i] is not None:
+            applied_transforms = self.__show_transforms(list_replay_tranforms[i])
+          title = f"Image {i} | Class {list_classes[i]}" + applied_transforms
         cmap   = list_cmaps[i] if list_cmaps is not None else (None if img_is_color(img) else 'gray')
         
         list_axes[i].imshow(img, cmap=cmap)
@@ -160,15 +171,25 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
       except Exception as error:
         print(f"Error in saving the plot: {error}")
     
+  def __getitem__(self, index: int) -> tuple:
+    
+    batches = self.img_paths[index * self.batch_size: (index + 1) * self.batch_size]
+    X, y, _ = self.__get_data(batches)
+    
+    return X, y
+    
   def __get_data(self, batches: list) -> typing.Tuple[np.array, np.array]:
     
     # Sample (tuple) -> (img_path, [list of transformations])
     
-    img_batch = np.asarray([self.__get_input(sample) for sample in batches])
+    data_batch = [self.__get_input(sample) for sample in batches]
+    
+    img_batch = np.asarray([data[0] for data in data_batch])
+    replay_batch = [data[1] for data in data_batch]
     
     class_batch = np.asarray([self.__get_output(sample[0]) for sample in batches])
     
-    return img_batch, class_batch
+    return img_batch, class_batch, replay_batch
   
   def __get_output(self, path: str) -> int:
     # 0 is benign
@@ -195,6 +216,7 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
    
   def __get_input(self, sample: tuple) -> np.array:
     path = sample[0]
+    replay = None
     
     img_format = "." + path.split(".")[-1]
     
@@ -210,11 +232,13 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     
     # Sample[1] = transformations to be applied in image
     if self.transform_imgs:
-      img_array = sample[1](image=img_array)["image"]
+      data = sample[1](image=img_array)
+      img_array = data["image"]
+      replay = data["replay"]
     
     if self.normalize: img_array = img_array / 255.0
     
-    return img_array
+    return img_array, replay
   
   def __len__(self):
       return len(self.img_paths) // self.batch_size
@@ -232,10 +256,10 @@ def select_transformations(transformations_list: list, random_seed: int=None, mi
   
   number_transforms = random.randint(min_transformations, len(transformations_list) - 1)
   
-  transforms = albumentations.Compose([])
+  transforms = albumentations.ReplayCompose([])
   
-  for _ in range(number_transforms):
-    transforms = albumentations.Compose([*transforms, random.choice(transformations_list)])
+  for choice in random.sample(transformations_list, number_transforms):
+    transforms = albumentations.ReplayCompose([*transforms, choice])
   
   return transforms
     
@@ -345,10 +369,22 @@ def split_pacients_train_test(pacients: typing.Union[dict, list], split_percenta
 # Usage
 datasets_paths = ["/home/guilherme/Downloads/breast_20x", "/home/guilherme/Downloads/mouth_20x"]
 
+params = {
+  "batch_size": 16,
+  "epochs": 200,
+  "input_size": (224, 224, 3),
+  "learning_rate": 1e-3,
+  "transformations": {"ColorJitter": 0.85,
+                      "GaussianBlur": 0.85,
+                      "ShiftScaleRotate": 1,
+                      "RandomSnow": 0.3}
+}
+
 transformations_list = [
-  albumentations.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=0.5),
-  albumentations.ColorJitter(brightness=(0.1, 0.5), contrast=(0.1, 0.5), saturation=(0.1, 0.5), hue=(-0.2, 0.2), p=0.5),
-  albumentations.ShiftScaleRotate(shift_limit=(0.05, 0.2), scale_limit=(-0.1, 0.5), rotate_limit=45, interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_WRAP, p=0.5)
+  albumentations.ColorJitter(brightness=(0.2), contrast=(0.3), saturation=(0.3), hue=(-0.1, 0.1), p=params["transformations"]["ColorJitter"]),
+  albumentations.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=params["transformations"]["GaussianBlur"]),
+  albumentations.ShiftScaleRotate(shift_limit=(0.05, 0.2), scale_limit=(-0.1, 0.5), rotate_limit=45, interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_WRAP, p=params["transformations"]["ShiftScaleRotate"]),
+  albumentations.RandomSnow(p=params["transformations"]["RandomSnow"])
 ]
 
 img_paths = scan_datasets(datasets_paths, 5, transformations_list)
@@ -366,6 +402,8 @@ cdg_train = CustomDataGenerator(
   data=train,
   batch_size=1,
   input_size=(480, 480, 3))
+
+import pdb; pdb.set_trace()
 
 # cdg_val = CustomDataGenerator(
 #   data=val,
