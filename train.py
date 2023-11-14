@@ -6,9 +6,8 @@ print("Imported comet_ml")
 model_name = "resnet" # models: ["resnet", "efficientnet", "densenet", "transformer"]
 training_mode = "transfer_learning" # modes: ["transfer_learning", "fine_tuning", "from_scratch"]
 weight_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v1/checkpoints/ckpt_" # only used if training_mode == "fine_tuning"
-saved_model_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v0/model" # only used if training_mode == "fine_tuning"
 
-experiment_name = f'{model_name}_no_preprocessing_{training_mode}_v'
+experiment_name = f'{model_name}_default_{training_mode}_v'
 
 dir_index = 0
 while os.path.isdir(os.path.join(os.getcwd(), experiment_name + str(dir_index))):
@@ -51,12 +50,12 @@ print("Defined custom lr decay function")
 params = {
   "batch_size": 16,
   "epochs": 200,
-  "input_size": (224, 224, 3),
+  "input_size": (480, 480, 3),
   "learning_rate": 1e-3,
   "lr_scheduler": decay,
-  "transformations": {"ColorJitter": 0.7,
-                      "GaussianBlur": 0.7,
-                      "ShiftScaleRotate": 0.8,
+  "transformations": {"ColorJitter": 0.8,
+                      "GaussianBlur": 0.8,
+                      "ShiftScaleRotate": 0.9,
                       "RandomSnow": 0.3}
 }
 
@@ -145,7 +144,6 @@ with mirrored_strategy.scope():
                     params=params, 
                     training_mode=training_mode, 
                     weight_path=weight_path,
-                    saved_model_path=saved_model_path
                   )
 
 # Define the checkpoint directory to store the checkpoints.
