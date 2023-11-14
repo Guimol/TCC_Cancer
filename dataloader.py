@@ -288,6 +288,8 @@ def create_folds(pacients: dict, data: dict, number_folds: int) -> list:
   return folds
 
 def split_folds_train_test(folds: typing.List[list], split_percentage: int, random_seed: int=None) -> typing.Tuple[list, list]:
+  #! Refactor to use pacients instead of folds
+  
   data = []
   
   if isinstance(folds[0], list):
