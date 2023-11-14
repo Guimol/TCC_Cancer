@@ -53,7 +53,11 @@ params = {
   "epochs": 200,
   "input_size": (224, 224, 3),
   "learning_rate": 1e-3,
-  "lr_scheduler": decay
+  "lr_scheduler": decay,
+  "transformations": {"ColorJitter": 0.7,
+                      "GaussianBlur": 0.7,
+                      "ShiftScaleRotate": 0.8,
+                      "RandomSnow": 0.3}
 }
 
 print("Initialized models params")
@@ -70,20 +74,21 @@ print("Set path to datasets")
 import albumentations as A
 
 transformations_list = [
-  A.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=0.5),
-  A.ColorJitter(brightness=(0.1, 0.5), contrast=(0.1, 0.5), saturation=(0.1, 0.5), hue=(-0.2, 0.2), p=0.5),
-  A.ShiftScaleRotate(shift_limit=(0.05, 0.2), scale_limit=(-0.1, 0.5), rotate_limit=45, interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_WRAP, p=0.5)
+  A.ColorJitter(brightness=(0.2), contrast=(0.3), saturation=(0.3), hue=(-0.1, 0.1), p=params["transformations"]["ColorJitter"]),
+  A.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=params["transformations"]["GaussianBlur"]),
+  A.ShiftScaleRotate(shift_limit=(0.05, 0.2), scale_limit=(-0.1, 0.5), rotate_limit=45, interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_WRAP, p=params["transformations"]["ShiftScaleRotate"]),
+  A.RandomSnow(p=params["transformations"]["RandomSnow"])
 ]
 
 print("Defined list of transformations")
 
-img_paths = scan_datasets(datasets_paths, upsampling_factor=5, transformations_list=transformations_list)
+img_paths = scan_datasets(datasets_paths, upsampling_factor=10, transformations_list=transformations_list)
 pacients = retrieve_pacients(img_paths)
 
 print(f"Retrieved {len(pacients)} pacients")
 
 train_keys, test_keys = split_pacients_train_test(pacients, 90)
-train_keys, val_keys = split_pacients_train_test(train_keys, 80)
+train_keys, val_keys = split_pacients_train_test(train_keys, 78)
 
 print(f"Splitted the pacients into: Train ({len(train_keys)}) | Validation ({len(val_keys)}) | Test ({len(test_keys)})")
 
@@ -101,7 +106,8 @@ train_loader = CustomDataGenerator(
                  batch_size=16,
                  input_size=params["input_size"],
                  shuffle=False,
-                 normalize=False)
+                 normalize=False,
+                 transform_imgs=True)
 
 print("Initialized train loader")
 
@@ -110,7 +116,8 @@ val_loader = CustomDataGenerator(
                  batch_size=16,
                  input_size=params["input_size"],
                  shuffle=False,
-                 normalize=False)
+                 normalize=False,
+                 transform_imgs=False)
 
 print("Initialized val loader")
 
@@ -119,7 +126,8 @@ test_loader = CustomDataGenerator(
                  batch_size=16,
                  input_size=params["input_size"],
                  shuffle=False,
-                 normalize=False)
+                 normalize=False,
+                 transform_imgs=False)
 
 print("Initialized test loader")
 
