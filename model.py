@@ -2,6 +2,8 @@ import tensorflow as tf
 from tensorflow import keras
 from keras.applications import ResNet50, DenseNet121, EfficientNetB0
 
+from resnet import CustomResNet50
+
 print("Imported TF and models")
 
 def get_model(base_model_name: str, params: dict, training_mode: str, weight_path: str) -> tf.keras.Model:
@@ -19,7 +21,7 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
     
     # Choose model
     if base_model_name == "resnet":
-        base_model = ResNet50(
+        base_model = CustomResNet50(
                         include_top=False,
                         weights=weight,
                         pooling="avg"
@@ -59,6 +61,10 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
         
     inputs = keras.Input(shape=params["input_size"])
     x = base_model(inputs, training=False)
+    
+    base_model.summary()
+    
+    import pdb; pdb.set_trace()
     
     # A Dense classifier with a single unit (binary classification)
     outputs = keras.layers.Dense(1)(x)
