@@ -40,12 +40,6 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
                         input_shape=None,
                         pooling="avg"
                     )
-    elif base_model_name == "transformer":
-        base_model = ResNet50(
-                        include_top=False,
-                        pooling="avg",
-                        weights="imagenet"
-                        )
     else:
         print("Error with model name")
         quit()
