@@ -271,7 +271,8 @@ def CustomResNet50(
         x = stack1(x, 64, 3, stride1=1, name="conv2")
         x = stack1(x, 128, 4, name="conv3")
         x = stack1(x, 256, 6, name="conv4")
-        return stack1(x, 512, 3, name="conv5")
+        x = stack1(x, 512, 4, name="conv5")
+        return stack1(x, 1024, 3, name="conv6") # Added a new stack of 3 Residual Blocks
 
     return ResNet(
         stack_fn,
