@@ -60,8 +60,11 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
     inputs = keras.Input(shape=params["input_size"])
     x = base_model(inputs, training=False)
     
+    # Dropout layer
+    x = keras.layers.Dropout(rate=0.5)(x)
+    
     # A Dense classifier with a single unit (binary classification)
-    outputs = keras.layers.Dense(1)(x)
+    outputs = keras.layers.Dense(units=1, activation="sigmoid")(x)
     
     model = keras.Model(inputs, outputs)
     
