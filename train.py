@@ -7,7 +7,7 @@ model_name = "resnet" # models: ["resnet", "efficientnet", "densenet", "transfor
 training_mode = "transfer_learning" # modes: ["transfer_learning", "fine_tuning", "from_scratch"]
 weight_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v1/checkpoints/ckpt_" # only used if training_mode == "fine_tuning"
 
-experiment_name = f'{model_name}_default_{training_mode}_v'
+experiment_name = f'{model_name}_640_{training_mode}_v'
 
 dir_index = 0
 while os.path.isdir(os.path.join(os.getcwd(), experiment_name + str(dir_index))):
@@ -50,7 +50,7 @@ print("Defined custom lr decay function")
 params = {
   "batch_size": 16,
   "epochs": 200,
-  "input_size": (480, 480, 3),
+  "input_size": (640, 640, 3),
   "learning_rate": 1e-3,
   "lr_scheduler": decay,
   "transformations": {"ColorJitter": 0.8,
