@@ -4,11 +4,11 @@ import comet_ml
 print("Imported comet_ml")
 
 model_name = "resnet" # models: ["resnet", "efficientnet", "densenet", "transformer"]
-training_mode = "transfer_learning" # modes: ["transfer_learning", "fine_tuning", "from_scratch"]
+training_mode = "from_scratch" # modes: ["transfer_learning", "fine_tuning", "from_scratch"]
 weight_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v1/checkpoints/ckpt_" # only used if training_mode == "fine_tuning"
 saved_model_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v0/model" # only used if training_mode == "fine_tuning"
 
-experiment_name = f'{model_name}_no_preprocessing_{training_mode}_v'
+experiment_name = f'{model_name}_cross_validation_{training_mode}_v'
 
 dir_index = 0
 while os.path.isdir(os.path.join(os.getcwd(), experiment_name + str(dir_index))):
@@ -51,9 +51,14 @@ print("Defined custom lr decay function")
 params = {
   "batch_size": 16,
   "epochs": 200,
-  "input_size": (224, 224, 3),
+  "input_size": (480, 480, 3),
   "learning_rate": 1e-3,
-  "lr_scheduler": decay
+  "lr_scheduler": decay,
+  "transformations": {"ColorJitter": 0.8,
+                      "GaussianBlur": 0.8,
+                      "ShiftScaleRotate": 0.9,
+                      "RandomSnow": 0.3},
+  "upsample_factor": 10
 }
 
 print("Initialized models params")
@@ -70,9 +75,10 @@ print("Set path to datasets")
 import albumentations as A
 
 transformations_list = [
-  A.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=0.5),
-  A.ColorJitter(brightness=(0.1, 0.5), contrast=(0.1, 0.5), saturation=(0.1, 0.5), hue=(-0.2, 0.2), p=0.5),
-  A.ShiftScaleRotate(shift_limit=(0.05, 0.2), scale_limit=(-0.1, 0.5), rotate_limit=45, interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_WRAP, p=0.5)
+  A.ColorJitter(brightness=(0.2), contrast=(0.3), saturation=(0.3), hue=(-0.1, 0.1), p=params["transformations"]["ColorJitter"]),
+  A.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=params["transformations"]["GaussianBlur"]),
+  A.ShiftScaleRotate(shift_limit=(0.05, 0.2), scale_limit=(-0.1, 0.5), rotate_limit=45, interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_WRAP, p=params["transformations"]["ShiftScaleRotate"]),
+  A.RandomSnow(p=params["transformations"]["RandomSnow"])
 ]
 
 print("Defined list of transformations")
@@ -82,14 +88,14 @@ pacients = retrieve_pacients(img_paths)
 
 print(f"Retrieved {len(pacients)} pacients")
 
-folds = create_folds(pacients, img_paths, 5)
+train_pacients, test = separate_test_pacients(pacients, 5)
+folds = create_folds(train_pacients, number_folds=5)
 
 print(f"Created {len(folds)} folds for Cross Validation")
 
-upsampling_factor = 5
-upsampled_folds = upsample_folds(folds, upsampling_factor=upsampling_factor, transformations_list=transformations_list)
+upsampled_folds = upsample_folds(folds, upsampling_factor=params["upsample_factor"], transformations_list=transformations_list)
 
-print(f"Upsampled the folds x{upsampling_factor} times")
+print(f"Upsampled the folds x{params['upsample_factor']} times")
 
 policy = keras.mixed_precision.Policy('mixed_float16')
 keras.mixed_precision.set_global_policy(policy)
@@ -97,7 +103,20 @@ keras.mixed_precision.set_global_policy(policy)
 mirrored_strategy = tf.distribute.MirroredStrategy()
 print("Set the strategy to mirrored")
 
-for train, test in PermuteFolds(folds=upsampled_folds):
+accuracy_list = []
+
+test_loader = CustomDataGenerator(
+                 data=test,
+                 batch_size=16,
+                 input_size=params["input_size"],
+                 shuffle=False,
+                 normalize=False)
+
+print("Initialized test loader")
+
+for index, (train, val) in enumerate(PermuteFolds(folds=upsampled_folds)):
+  
+  fold_name = experiment_name + f"_k{index}"
   
   train_loader = CustomDataGenerator(
                  data=train,
@@ -108,14 +127,14 @@ for train, test in PermuteFolds(folds=upsampled_folds):
 
   print("Initialized train loader")
 
-  test_loader = CustomDataGenerator(
+  val_loader = CustomDataGenerator(
                  data=test,
                  batch_size=16,
                  input_size=params["input_size"],
                  shuffle=False,
                  normalize=False)
 
-  print("Initialized test loader")
+  print("Initialized val loader")
 
   from model import get_model
 
@@ -124,12 +143,11 @@ for train, test in PermuteFolds(folds=upsampled_folds):
                       base_model_name=model_name, 
                       params=params, 
                       training_mode=training_mode, 
-                      weight_path=weight_path,
-                      saved_model_path=saved_model_path
+                      weight_path=weight_path
                     )
 
   # Define the checkpoint directory to store the checkpoints.
-  checkpoint_dir = os.path.join(os.getcwd(), experiment_name, "checkpoints")
+  checkpoint_dir = os.path.join(os.getcwd(), fold_name, "checkpoints")
   # Define the name of the checkpoint files.
   checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_")
 
@@ -142,7 +160,7 @@ for train, test in PermuteFolds(folds=upsampled_folds):
                                         save_weights_only=True,
                                         save_best_only=True),
       keras.callbacks.LearningRateScheduler(params["lr_scheduler"]),
-      keras.callbacks.TensorBoard(log_dir=os.path.join(os.getcwd(), experiment_name, "logs"))
+      keras.callbacks.TensorBoard(log_dir=os.path.join(os.getcwd(), fold_name, "logs"))
   ]
 
   print("Joined all callbacks into a list")
@@ -158,22 +176,26 @@ for train, test in PermuteFolds(folds=upsampled_folds):
                         batch_size=params["batch_size"],
                         epochs=params["epochs"],
                         verbose=1,
-                        validation_data=test_loader,
+                        validation_data=val_loader,
                         callbacks=callbacks)
 
   #will log metrics with the prefix 'test_'
   with experiment.test():
     loss, accuracy = custom_model.evaluate(test_loader)
     metrics = {
-        'loss':loss,
-        'accuracy':accuracy
+        'loss': loss,
+        'accuracy': accuracy
     }
+  
+  accuracy_list.append(accuracy)
 
-  os.mkdir(os.path.join(os.getcwd(), experiment_name, "model"))
-  custom_model.save(os.path.join(os.getcwd(), experiment_name, "model"), save_format="tf")
+  os.mkdir(os.path.join(os.getcwd(), fold_name, "model"))
+  custom_model.save(os.path.join(os.getcwd(), fold_name, "model"), save_format="tf")
 
   experiment.log_metrics(metrics)
 
   experiment.log_parameters(params)
 
   experiment.end()
+  
+print(f"Avg Accuracy across all {index} folds: {sum(accuracy_list)/len(accuracy_list)}")
