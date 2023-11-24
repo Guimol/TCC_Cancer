@@ -240,7 +240,7 @@ def min_list_length_index(list_of_lists):
 
     return min_index
 
-def create_folds(pacients: dict, data: dict, number_folds: int) -> list:
+def create_folds(pacients: dict, number_folds: int) -> list:
   folds = []
   
   for _ in range(number_folds):
@@ -286,6 +286,27 @@ def create_folds(pacients: dict, data: dict, number_folds: int) -> list:
         folds[fold_index] += extract_pacient_paths(copy_pacients[type].pop(key))
   
   return folds
+
+def separate_test_pacients(pacients: dict, split_percentage: int) -> typing.Tuple[dict, list]:
+  pacients_amount = sum([len(pacients[type]) for type in pacients])
+  
+  test_pacients_amount = int(pacients_amount * (split_percentage/100))
+  
+  pacients_per_type_amount = max(int(test_pacients_amount / len(pacients)), 1)
+  
+  test_pacients = []
+  copy_pacients = pacients.copy()
+  
+  import pdb; pdb.set_trace()
+  
+  for type in pacients:
+    for _ in range(pacients_per_type_amount):
+      key = list(copy_pacients[type].keys())[0]
+      if key == "count": 
+        key = list(copy_pacients[type].keys())[1]
+      test_pacients += extract_pacient_paths(copy_pacients[type].pop(key))
+  
+  return copy_pacients, test_pacients
 
 def split_folds_train_test(folds: typing.List[list], split_percentage: int, random_seed: int=None) -> typing.Tuple[list, list]:
   #! Refactor to use pacients instead of folds
@@ -356,13 +377,14 @@ transformations_list = [
 img_paths = scan_datasets(datasets_paths)
 
 pacients = retrieve_pacients(img_paths)
-#! Separate pacients for testing
 
-folds = create_folds(pacients, img_paths, 5)
+train_pacients, test_pacients = separate_test_pacients(pacients, 5)
+
+folds = create_folds(train_pacients, 5)
 upsampled_folds = upsample_folds(folds, upsampling_factor=5, transformations_list=transformations_list)
 
 # Use case for Train, Validation and Test
-
+#! Not working
 train, test = split_folds_train_test(upsampled_folds, 90, 0)
 train, val = split_folds_train_test(train, 78, 0)
 
