@@ -297,8 +297,6 @@ def separate_test_pacients(pacients: dict, split_percentage: int) -> typing.Tupl
   test_pacients = []
   copy_pacients = pacients.copy()
   
-  import pdb; pdb.set_trace()
-  
   for type in pacients:
     for _ in range(pacients_per_type_amount):
       key = list(copy_pacients[type].keys())[0]
