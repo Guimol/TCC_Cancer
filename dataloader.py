@@ -23,13 +23,15 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
                batch_size: int = 32,
                input_size: tuple = (224, 224, 3),
                shuffle: bool = True,
-               normalize: bool = False):
+               normalize: bool = False,
+               transform_imgs: bool = True):
       
     self.batch_size = batch_size
     self.input_size = input_size
     self.shuffle = shuffle
     self.normalize = normalize
     self.img_paths = data
+    self.transform_imgs = transform_imgs
       
   def on_epoch_end(self):
     if self.shuffle:
@@ -47,12 +49,18 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     
     img_batch = np.asarray([self.__get_input(sample) for sample in batches])
     
-    class_batch = np.asarray([get_output(sample[0]) for sample in batches])
+    #! Temp workaround
+    class_batch = np.asarray([get_output(sample[0] if isinstance(sample, tuple) else sample) for sample in batches])
     
     return img_batch, class_batch
   
   def __get_input(self, sample: tuple) -> np.array:
-    path = sample[0]
+    
+    #! Temp workaround
+    if isinstance(sample, tuple):
+      path = sample[0]
+    elif isinstance(sample, str):
+      path = sample 
     
     img_format = "." + path.split(".")[-1]
     
@@ -66,12 +74,14 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     # img_array = tf.image.resize(img, (self.input_size[0], self.input_size[1])).numpy()
     img_array = cv2.resize(img, (self.input_size[0], self.input_size[1]))
     
-    # sample[1] are the transformations to be applied
-    transformed_img = sample[1](image=img_array)["image"]
+    if self.transform_imgs:
+      # sample[1] are the transformations to be applied
+      img_array = sample[1](image=img_array)["image"]
     
-    if self.normalize: transformed_img = transformed_img / 255.0
+    if self.normalize: 
+      img_array = img_array / 255.0
     
-    return transformed_img
+    return img_array
   
   def __len__(self):
       return len(self.img_paths) // self.batch_size
@@ -386,8 +396,10 @@ upsampled_folds = upsample_folds(folds, upsampling_factor=5, transformations_lis
 train, test = split_folds_train_test(upsampled_folds, 90, 0)
 train, val = split_folds_train_test(train, 78, 0)
 
+import pdb; pdb.set_trace()
+
 # Use case for Cross Validation
-for train, test in PermuteFolds(upsampled_folds):
+for index, (train, test) in enumerate(PermuteFolds(upsampled_folds)):
     
   cdg_train = CustomDataGenerator(
     data=train,

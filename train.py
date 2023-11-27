@@ -4,32 +4,20 @@ import comet_ml
 print("Imported comet_ml")
 
 model_name = "resnet" # models: ["resnet", "efficientnet", "densenet", "transformer"]
-training_mode = "from_scratch" # modes: ["transfer_learning", "fine_tuning", "from_scratch"]
+training_mode = "transfer_learning" # modes: ["transfer_learning", "fine_tuning", "from_scratch"]
 weight_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v1/checkpoints/ckpt_" # only used if training_mode == "fine_tuning"
-saved_model_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v0/model" # only used if training_mode == "fine_tuning"
 
-experiment_name = f'{model_name}_cross_validation_{training_mode}_v'
+project_name = f'{model_name}_cross_validation_{training_mode}_v'
 
 dir_index = 0
-while os.path.isdir(os.path.join(os.getcwd(), experiment_name + str(dir_index))):
+while os.path.isdir(os.path.join(os.getcwd(), project_name + str(dir_index))):
   dir_index += 1
 
-os.mkdir(os.path.join(os.getcwd(), experiment_name + str(dir_index)))
+os.mkdir(os.path.join(os.getcwd(), project_name + str(dir_index)))
 
-experiment_name += str(dir_index)
+project_name = project_name + str(dir_index)
 
-print("Set experiment name")
-
-# #create an experiment with your api key
-experiment = comet_ml.Experiment(
-    api_key="LWf0Xh0BnuzPNtCkqvUJz2mKc",
-    project_name=experiment_name,
-    auto_histogram_weight_logging=True,
-    auto_histogram_gradient_logging=True,
-    auto_histogram_activation_logging=True,
-)
-
-print("Set experiment params")
+print("Set project name")
 
 from tensorflow import keras
 
@@ -88,7 +76,7 @@ pacients = retrieve_pacients(img_paths)
 
 print(f"Retrieved {len(pacients)} pacients")
 
-train_pacients, test = separate_test_pacients(pacients, 5)
+train_pacients, test = separate_test_pacients(pacients, split_percentage=5)
 folds = create_folds(train_pacients, number_folds=5)
 
 print(f"Created {len(folds)} folds for Cross Validation")
@@ -107,32 +95,48 @@ accuracy_list = []
 
 test_loader = CustomDataGenerator(
                  data=test,
-                 batch_size=16,
+                 batch_size=1,
                  input_size=params["input_size"],
                  shuffle=False,
-                 normalize=False)
+                 normalize=False,
+                 transform_imgs=False)
 
 print("Initialized test loader")
 
 for index, (train, val) in enumerate(PermuteFolds(folds=upsampled_folds)):
   
-  fold_name = experiment_name + f"_k{index}"
+  # #create an experiment with your api key
+  experiment = comet_ml.Experiment(
+    api_key="LWf0Xh0BnuzPNtCkqvUJz2mKc",
+    project_name=project_name,
+    auto_histogram_weight_logging=True,
+    auto_histogram_gradient_logging=True,
+    auto_histogram_activation_logging=True,
+  )
+
+  print("Set experiment params")
+  
+  fold_name = project_name + f"_k{index}"
+  
+  experiment.set_name(fold_name)
   
   train_loader = CustomDataGenerator(
                  data=train,
-                 batch_size=16,
+                 batch_size=params["batch_size"],
                  input_size=params["input_size"],
                  shuffle=False,
-                 normalize=False)
+                 normalize=False,
+                 transform_imgs=True)
 
   print("Initialized train loader")
 
   val_loader = CustomDataGenerator(
-                 data=test,
-                 batch_size=16,
+                 data=val,
+                 batch_size=params["batch_size"],
                  input_size=params["input_size"],
                  shuffle=False,
-                 normalize=False)
+                 normalize=False,
+                 transform_imgs=False)
 
   print("Initialized val loader")
 
@@ -173,7 +177,6 @@ for index, (train, val) in enumerate(PermuteFolds(folds=upsampled_folds)):
   with experiment.train():
     history = custom_model.fit(
                         train_loader,
-                        batch_size=params["batch_size"],
                         epochs=params["epochs"],
                         verbose=1,
                         validation_data=val_loader,
@@ -195,7 +198,14 @@ for index, (train, val) in enumerate(PermuteFolds(folds=upsampled_folds)):
   experiment.log_metrics(metrics)
 
   experiment.log_parameters(params)
-
+  
+  if index + 1 == len(folds):
+    break
+  
   experiment.end()
   
-print(f"Avg Accuracy across all {index} folds: {sum(accuracy_list)/len(accuracy_list)}")
+print(f"Avg Accuracy across all {index + 1} folds: {sum(accuracy_list)/len(accuracy_list)}")
+
+experiment.log_metric("avg_accuracy", np.average(accuracy_list))
+
+experiment.end()
