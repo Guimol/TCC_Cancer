@@ -200,7 +200,9 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     if isinstance(sample, tuple):
       path = sample[0]
     elif isinstance(sample, str):
-      path = sample 
+      path = sample
+    
+    replay = None
     
     img_format = "." + path.split(".")[-1]
     
@@ -214,14 +216,16 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     # img_array = tf.image.resize(img, (self.input_size[0], self.input_size[1])).numpy()
     img_array = cv2.resize(img, (self.input_size[0], self.input_size[1]))
     
+    # Sample[1] = transformations to be applied in image
     if self.transform_imgs:
-      # sample[1] are the transformations to be applied
-      img_array = sample[1](image=img_array)["image"]
+      data = sample[1](image=img_array)
+      img_array = data["image"]
+      replay = data["replay"]
     
     if self.normalize: 
       img_array = img_array / 255.0
     
-    return img_array
+    return img_array, replay
   
   def __len__(self):
       return len(self.img_paths) // self.batch_size
