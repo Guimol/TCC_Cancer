@@ -52,6 +52,8 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
         print("Error with model name")
         quit()
 
+    base_model.summary()
+
     print(f"Initialized {base_model_name} model")
     
     base_model.trainable = trainable
@@ -67,8 +69,6 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
         
     inputs = keras.Input(shape=params["input_size"])
     x = base_model(inputs, training=False)
-    
-    base_model.summary()
     
     # A Dense classifier with a single unit (binary classification)
     outputs = keras.layers.Dense(1)(x)
