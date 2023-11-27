@@ -4,9 +4,9 @@
 __pycache__
 
 resnet_*
+custom_resnet_*
 densenet_*
 efficientnet_*
-transformer_*
 
 # Ignore example files/folders
 test*
