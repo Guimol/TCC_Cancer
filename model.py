@@ -21,7 +21,7 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
     
     # Choose model
     if base_model_name == "resnet":
-        base_model = CustomResNet50(
+        base_model = ResNet50(
                         include_top=False,
                         weights=weight,
                         pooling="avg"
@@ -40,6 +40,12 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
                         weights=weight,
                         input_tensor=None,
                         input_shape=None,
+                        pooling="avg"
+                    )
+    elif base_model_name == "custom_resnet":
+        base_model = CustomResNet50(
+                        include_top=False,
+                        weights=weight,
                         pooling="avg"
                     )
     else:
@@ -63,8 +69,6 @@ def get_model(base_model_name: str, params: dict, training_mode: str, weight_pat
     x = base_model(inputs, training=False)
     
     base_model.summary()
-    
-    import pdb; pdb.set_trace()
     
     # A Dense classifier with a single unit (binary classification)
     outputs = keras.layers.Dense(1)(x)
