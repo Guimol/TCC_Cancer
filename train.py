@@ -38,7 +38,7 @@ print("Defined custom lr decay function")
 #these will all get logged
 params = {
   "batch_size": 16,
-  "epochs": 200,
+  "epochs": 300,
   "input_size": (480, 480, 3),
   "learning_rate": 1e-3,
   "lr_scheduler": decay,
