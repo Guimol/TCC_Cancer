@@ -3,7 +3,7 @@ import comet_ml
 
 print("Imported comet_ml")
 
-model_name = "resnet" # models: ["resnet", "efficientnet", "densenet", "transformer"]
+model_name = "resnet" # models: ["resnet", "efficientnet", "densenet", "custom_resnet"]
 training_mode = "transfer_learning" # modes: ["transfer_learning", "fine_tuning", "from_scratch"]
 weight_path = "/home/guilherme/tcc_guilherme/densenet_no_preprocessing_transfer_learning_v1/checkpoints/ckpt_" # only used if training_mode == "fine_tuning"
 
