@@ -24,6 +24,8 @@ def img_is_color(img):
   return False
 
 img_types = [".tif", ".tiff"]
+BENIGN = 0
+MALIGNANT = 1
 
 class CustomDataGenerator(tf.keras.utils.Sequence):
   
@@ -187,11 +189,44 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
     img_batch = np.asarray([data[0] for data in data_batch])
     replay_batch = [data[1] for data in data_batch]
     
-    class_batch = np.asarray([self.__get_output(sample[0]) for sample in batches])
+    #! Temp workaround
+    class_batch = np.asarray([get_output(sample[0] if isinstance(sample, tuple) else sample) for sample in batches])
     
     return img_batch, class_batch, replay_batch
   
-  def __get_output(self, path: str) -> int:
+  def __get_input(self, sample: tuple) -> np.array:
+    
+    #! Temp workaround
+    if isinstance(sample, tuple):
+      path = sample[0]
+    elif isinstance(sample, str):
+      path = sample 
+    
+    img_format = "." + path.split(".")[-1]
+    
+    if img_format in [".tif", ".tiff"]:
+      img = tifffile.imread(path)
+    else:
+      img = cv2.imread(path)
+      
+    # Deprecated
+    # img_array = tf.keras.preprocessing.image.img_to_array(img)
+    # img_array = tf.image.resize(img, (self.input_size[0], self.input_size[1])).numpy()
+    img_array = cv2.resize(img, (self.input_size[0], self.input_size[1]))
+    
+    if self.transform_imgs:
+      # sample[1] are the transformations to be applied
+      img_array = sample[1](image=img_array)["image"]
+    
+    if self.normalize: 
+      img_array = img_array / 255.0
+    
+    return img_array
+  
+  def __len__(self):
+      return len(self.img_paths) // self.batch_size
+
+def get_output(path: str) -> int:
     # 0 is benign
     # 1 is malignant
     
@@ -213,35 +248,6 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
       filename_split = filename.split("_")
       
       return np.asarray(int(filename_split[2]))
-   
-  def __get_input(self, sample: tuple) -> np.array:
-    path = sample[0]
-    replay = None
-    
-    img_format = "." + path.split(".")[-1]
-    
-    if img_format in [".tif", ".tiff"]:
-      img = tifffile.imread(path)
-    else:
-      img = cv2.imread(path)
-      
-    # Deprecated
-    # img_array = tf.keras.preprocessing.image.img_to_array(img)
-    # img_array = tf.image.resize(img, (self.input_size[0], self.input_size[1])).numpy()
-    img_array = cv2.resize(img, (self.input_size[0], self.input_size[1]))
-    
-    # Sample[1] = transformations to be applied in image
-    if self.transform_imgs:
-      data = sample[1](image=img_array)
-      img_array = data["image"]
-      replay = data["replay"]
-    
-    if self.normalize: img_array = img_array / 255.0
-    
-    return img_array, replay
-  
-  def __len__(self):
-      return len(self.img_paths) // self.batch_size
     
 def select_transformations(transformations_list: list, random_seed: int=None, min_transformations: int=1) -> list:
   '''
@@ -263,7 +269,7 @@ def select_transformations(transformations_list: list, random_seed: int=None, mi
   
   return transforms
     
-def scan_datasets(datasets_paths: list, upsampling_factor: int=1, transformations_list: list=[None], random_seed: int=None, min_transformations: int=1) -> dict:
+def scan_datasets(datasets_paths: list) -> dict:
   img_paths = []
   
   for index, path in enumerate(datasets_paths):
@@ -283,24 +289,35 @@ def scan_datasets(datasets_paths: list, upsampling_factor: int=1, transformation
     # Append the newly found paths to class img_paths list
     img_paths.extend(curr_dir_img_paths)
     
-    img_paths_and_transformations = {}
-    
-    if upsampling_factor > 0:
-      for i in range(upsampling_factor):
-        for index, img_path in enumerate(img_paths):
-          img_paths_and_transformations.update({f"{index}_{i}": {"path": img_path,
-                                                                 "transformations": select_transformations(transformations_list, random_seed, min_transformations)}})
-    
     # New line
     print()
   
-  return img_paths_and_transformations
+  return img_paths
+
+def upsample_folds(folds: typing.List[list], upsampling_factor: int=1, transformations_list: list=[None], random_seed: int=None, min_transformations: int=1) -> typing.List[list]:
+  upsampled_folds = []
+  
+  for _ in range(len(folds)):
+    upsampled_folds.append([])
+  
+  if upsampling_factor > 0:
+      for index, fold in enumerate(folds):
+        for _ in range(upsampling_factor):
+          for img_path in fold:
+            upsampled_folds[index].append((img_path, 
+                                          select_transformations(transformations_list, random_seed, min_transformations)))
+  else:
+    print(f"Upsample factor \"{upsampling_factor}\" not permitted.")
+    quit()
+  
+  return upsampled_folds
 
 def retrieve_pacients(data: dict) -> dict:
-  pacients = {}
-  
-  for id in data:
-      path = data[id]["path"]
+  pacients = {"mouth": {"count": {BENIGN: 0, MALIGNANT: 0}}, "breast": {"count": {BENIGN: 0, MALIGNANT: 0}}}
+    
+  for path in data:
+  # for id in data
+      # path = data[id]["path"]
       
       # Breast <Num>_<odd/even>
       # Pacient = <Num>_<odd> + <Num>_<even>
@@ -313,10 +330,15 @@ def retrieve_pacients(data: dict) -> dict:
             new_name = "".join([filename_split[0], "_", str(index)])
             new_path = path.replace(filename, new_name)
             if os.path.isfile(new_path):
+              pacient_class = int(get_output(new_path))
               try:
-                pacients[f"breast_{filename}"].append(id)
+                pacients["breast"][filename][pacient_class].append(new_path) # id
               except:
-                pacients.update({f"breast_{filename}": [id]}) # id
+                pacients["breast"].update({filename: {BENIGN: [], MALIGNANT: []}}) # id
+                pacients["breast"][filename][pacient_class].append(new_path)
+              
+              # Increment count for pacient class
+              pacients["breast"]["count"][pacient_class] += 1
             else:
               continue
         else:
@@ -329,56 +351,169 @@ def retrieve_pacients(data: dict) -> dict:
         filename_split = filename.split("_")
         mouth_id = filename_split[1]
         if os.path.isfile(path):
+          pacient_class = int(get_output(path))
           try:
-              pacients[f"mouth_{mouth_id}"].append(id)
+              pacients["mouth"][mouth_id][pacient_class].append(path) # id 
           except:
-            pacients.update({f"mouth_{mouth_id}": [id]})
+            pacients["mouth"].update({mouth_id: {BENIGN: [], MALIGNANT: []}}) # id
+            pacients["mouth"][mouth_id][pacient_class].append(path)
+            
+          # Increment count for pacient class
+          pacients["mouth"]["count"][pacient_class] += 1
         else:
           continue
   
   return pacients
 
-def retrieve_pacients_data(pacients: dict, data: dict, keys: typing.List[int]) -> typing.List[typing.Tuple[str, list]]:
-  retrieved_data = []
+def extract_pacient_paths(pacient: dict) -> list:
+  paths = []
   
-  for key in keys:
-    if type(pacients[key]) == list:
-      for pacient_id in pacients[key]:
-        retrieved_data.append((data[pacient_id]["path"], data[pacient_id]["transformations"]))
+  for type in [BENIGN, MALIGNANT]:
+    if isinstance(pacient[type], list):
+      for path in pacient[type]:
+        paths.append(path)
     else:
-      retrieved_data.append((data[pacients[key]]["path"], data[pacients[key]]["transformations"]))
-  
-  return retrieved_data
+      paths.append(pacient[type])
+      
+  return paths
 
-def split_pacients_train_test(pacients: typing.Union[dict, list], split_percentage: int) -> typing.Tuple[typing.List[int], typing.List[int]]:
+def min_list_length_index(list_of_lists):
+    min_length = float('inf')  # Initialize with positive infinity
+    min_index = None
+
+    for i, sublist in enumerate(list_of_lists):
+        current_length = len(sublist)
+        if current_length < min_length:
+            min_length = current_length
+            min_index = i
+
+    return min_index
+
+def create_folds(pacients: dict, number_folds: int) -> list:
+  folds = []
   
-  if type(pacients) == dict:
-    pacients_keys = list(pacients.keys())
-  elif type(pacients) == list:
-    pacients_keys = pacients
+  for _ in range(number_folds):
+    folds.append([])
+    
+  copy_pacients = pacients.copy()
+  
+  for type in pacients:
+    #! Not used
+    # benign_percent = pacients[type]["count"][BENIGN] / sum(pacients[type]["count"].values())
+    # malignant_percent = 1 - benign_percent
+    
+    pacients_per_fold = (len(pacients[type]) - 1) // number_folds
+    leftover_pacients = (len(pacients[type]) - 1) % number_folds
+    
+    #! Not used
+    # benign_pacients = int(pacients_per_fold * benign_percent)
+    # malignant_pacients = pacients_per_fold - benign_pacients
+    
+    all_pacients_keys = list(pacients[type].keys())
+    
+    for index, fold in enumerate(folds):
+      pacients_keys = all_pacients_keys[index * pacients_per_fold : (index + 1) * pacients_per_fold]
+            
+      try:
+        pacients_keys.remove("count")
+        if leftover_pacients > 0:
+          pacients_keys.append(all_pacients_keys.pop())
+      except:
+        pass
+      
+      for key in pacients_keys:
+        fold += extract_pacient_paths(copy_pacients[type].pop(key))
+    
+    if len(copy_pacients[type]) > 1:
+      
+      leftover_pacients_keys = list(copy_pacients[type].keys())
+      leftover_pacients_keys.remove("count")
+      
+      for key in leftover_pacients_keys:
+      
+        fold_index = min_list_length_index(folds)
+        folds[fold_index] += extract_pacient_paths(copy_pacients[type].pop(key))
+  
+  return folds
+
+def separate_test_pacients(pacients: dict, split_percentage: int) -> typing.Tuple[dict, list]:
+  pacients_amount = sum([len(pacients[type]) for type in pacients])
+  
+  test_pacients_amount = int(pacients_amount * (split_percentage/100))
+  
+  pacients_per_type_amount = max(int(test_pacients_amount / len(pacients)), 1)
+  
+  test_pacients = []
+  copy_pacients = pacients.copy()
+  
+  for type in pacients:
+    for _ in range(pacients_per_type_amount):
+      key = list(copy_pacients[type].keys())[0]
+      if key == "count": 
+        key = list(copy_pacients[type].keys())[1]
+      test_pacients += extract_pacient_paths(copy_pacients[type].pop(key))
+  
+  return copy_pacients, test_pacients
+
+def split_folds_train_test(folds: typing.List[list], split_percentage: int, random_seed: int=None) -> typing.Tuple[list, list]:
+  #! Refactor to use pacients instead of folds
+  
+  data = []
+  
+  if isinstance(folds[0], list):
+    for fold in folds:
+      data += fold
+  elif isinstance(folds[0], tuple):
+    data = folds
   else:
-    print("Invalid type for pacients")
+    print("Invalid type for fold")
     quit()
     
-  train_keys = pacients_keys[0:int((split_percentage/100) * len(pacients_keys))]
-  test_keys = pacients_keys[int((split_percentage/100) * len(pacients_keys)):]
+  random.seed(random_seed)
+  random.shuffle(data)
+  
+  train = data[0:int((split_percentage/100) * len(data))]
+  test = data[int((split_percentage/100) * len(data)):]
       
-  return train_keys, test_keys
+  return train, test
+
+class PermuteFolds:
+  def __init__(self, folds):
+    self.folds = folds
+    self.indexes = list(range(len(folds)))
+    self.current_index = -1
+  
+  def __iter__(self):
+    return self
+  
+  def __next__(self) -> typing.Tuple[list, list]:
+    self.current_index += 1
+    
+    if self.current_index < len(self.folds):
+    
+      test = self.folds[self.current_index]
+      
+      train = []
+      train_folds = [fold for index, fold in enumerate(self.folds) if index != self.current_index]
+      
+      for fold in train_folds:
+        train += fold
+            
+      return train, test
+      
+    else:
+      raise StopIteration
 
 '''
 # Usage
 datasets_paths = ["/home/guilherme/Downloads/breast_20x", "/home/guilherme/Downloads/mouth_20x"]
 
-params = {
-  "batch_size": 16,
-  "epochs": 200,
-  "input_size": (224, 224, 3),
-  "learning_rate": 1e-3,
-  "transformations": {"ColorJitter": 0.85,
-                      "GaussianBlur": 0.85,
-                      "ShiftScaleRotate": 1,
-                      "RandomSnow": 0.3}
-}
+# When combining the datasets we get the following distribution
+# 0 is benign
+# 1 is malignant
+
+#Malignant: 76.78% (172/224)
+#Benign: 23.21% (52/224)
 
 transformations_list = [
   albumentations.ColorJitter(brightness=(0.2), contrast=(0.3), saturation=(0.3), hue=(-0.1, 0.1), p=params["transformations"]["ColorJitter"]),
@@ -387,27 +522,37 @@ transformations_list = [
   albumentations.RandomSnow(p=params["transformations"]["RandomSnow"])
 ]
 
-img_paths = scan_datasets(datasets_paths, 5, transformations_list)
+img_paths = scan_datasets(datasets_paths)
 
 pacients = retrieve_pacients(img_paths)
 
-train_keys, test_keys = split_pacients_train_test(pacients, 90)
-train_keys, val_keys = split_pacients_train_test(train_keys, 80)
+train_pacients, test_pacients = separate_test_pacients(pacients, 5)
 
-train = retrieve_pacients_data(pacients, img_paths, train_keys)
-val = retrieve_pacients_data(pacients, img_paths, val_keys)
-test = retrieve_pacients_data(pacients, img_paths, test_keys)
+folds = create_folds(train_pacients, 5)
+upsampled_folds = upsample_folds(folds, upsampling_factor=5, transformations_list=transformations_list)
+
+# Use case for Train, Validation and Test
+#! Not working
+train, test = split_folds_train_test(upsampled_folds, 90, 0)
+train, val = split_folds_train_test(train, 78, 0)
+
+import pdb; pdb.set_trace()
+
+# Use case for Cross Validation
+for index, (train, test) in enumerate(PermuteFolds(upsampled_folds)):
     
-cdg_train = CustomDataGenerator(
-  data=train,
-  batch_size=1,
-  input_size=(480, 480, 3))
+  cdg_train = CustomDataGenerator(
+    data=train,
+    batch_size=16,
+    input_size=(480, 480, 3))
 
-# cdg_val = CustomDataGenerator(
-#   data=val,
-#   batch_size=16)
+  cdg_test = CustomDataGenerator(
+    data=test,
+    batch_size=16,
+    input_size=(480, 480, 3))
 
 # Reference for dataloader functions from TF
+
 # import pathlib
 # dataset_url = "https://storage.googleapis.com/download.tensorflow.org/example_images/flower_photos.tgz"
 # archive = tf.keras.utils.get_file(origin=dataset_url, extract=True)
